@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - LOG_JSON=true
+      - LOG_LEVEL=info
+      - REDIS_ADDR=redis:6379
+      - REDIS_DB=0
+      - RATE_LIMIT_RPS=20.0
+      - RATE_LIMIT_BURST=40
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=https://api.openai.com
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_BASE_URL=https://generativelanguage.googleapis.com
+      - DEFAULT_PROVIDER=openai
+      - PROVIDER_TIMEOUT_SEC=30
+      - PROVIDER_MAX_RETRIES=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - gateway_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai_gateway_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - gateway_net
+
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    container_name: ai_gateway_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    restart: unless-stopped
+    networks:
+      - gateway_net
+
+volumes:
+  redis_data:
+  prometheus_data:
+
+networks:
+  gateway_net:
+    driver: bridge
